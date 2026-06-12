@@ -5,6 +5,7 @@ import type {
   OutputSettings,
   SmartCutOptions,
   AIAnalysisResult,
+  TimelineData,
 } from '@/types/shared';
 
 const API_BASE = '/api';
@@ -164,7 +165,7 @@ export const renderAPI = {
   get: (id: string) =>
     request<RenderTask>(`/render/tasks/${id}`),
 
-  submit: (name: string, timeline: TimelineClip[], outputSettings?: Partial<OutputSettings>) =>
+  submit: (name: string, timeline: TimelineData | TimelineClip[], outputSettings?: Partial<OutputSettings>) =>
     request<{ taskId: string; status: string; estimatedTime: number; position: number }>(
       '/render/submit',
       {

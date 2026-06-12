@@ -36,7 +36,8 @@ const QUALITY_OPTIONS = [
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => {
   const outputSettings = useEditorStore((state) => state.outputSettings);
   const setOutputSettings = useEditorStore((state) => state.setOutputSettings);
-  const timeline = useEditorStore((state) => state.timeline);
+  const getTimelineData = useEditorStore((state) => state.getTimelineData);
+  const getTotalDuration = useEditorStore((state) => state.getTotalDuration);
   const addRenderTask = useEditorStore((state) => state.addRenderTask);
   const setActiveTab = useEditorStore((state) => state.setActiveTab);
 
@@ -56,7 +57,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   };
 
   const handleExport = async () => {
-    if (timeline.length === 0) {
+    const timelineData = getTimelineData();
+    if (timelineData.clips.length === 0) {
       alert('时间轴为空，请先添加素材');
       return;
     }
@@ -66,7 +68,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       const timeStr = `${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}`;
       const name = `剪辑作品_${timeStr}`;
 
-      const result = await renderAPI.submit(name, timeline, outputSettings);
+      const result = await renderAPI.submit(name, timelineData, outputSettings);
       console.log('Export submitted:', result);
 
       onClose();
@@ -84,7 +86,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
   if (!isOpen) return null;
 
-  const totalDuration = timeline.length > 0 ? timeline[timeline.length - 1].endTime : 0;
+  const totalDuration = getTotalDuration();
+  const timelineDataPreview = getTimelineData();
   const estimatedSize =
     (outputSettings.bitrate * totalDuration) / 8 / 1024;
 
@@ -292,7 +295,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               </div>
               <div>
                 <span className="text-slate-500">片段数</span>
-                <p className="font-medium">{timeline.length} 个</p>
+                <p className="font-medium">{timelineDataPreview.clips.length} 个</p>
               </div>
               <div>
                 <span className="text-slate-500">预估大小</span>
@@ -304,7 +307,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
 
         <div className="flex items-center justify-between px-6 py-4 border-t border-slate-700 bg-slate-800/50">
           <div className="text-sm text-slate-400">
-            {timeline.length === 0 && '⚠️ 时间轴为空'}
+            {timelineDataPreview.clips.length === 0 && '⚠️ 时间轴为空'}
           </div>
           <div className="flex gap-3">
             <button
@@ -316,12 +319,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             <button
               className={cn(
                 'px-6 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2',
-                timeline.length === 0
+                timelineDataPreview.clips.length === 0
                   ? 'bg-slate-600 cursor-not-allowed'
                   : 'bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400'
               )}
               onClick={handleExport}
-              disabled={timeline.length === 0}
+              disabled={timelineDataPreview.clips.length === 0}
             >
               <Download className="w-4 h-4" />
               提交渲染

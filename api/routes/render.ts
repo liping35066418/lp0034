@@ -3,7 +3,7 @@ import renderQueueService from '../services/RenderQueueService.js';
 import fileManager from '../services/FileManager.js';
 import fs from 'fs';
 import type { Request, Response } from 'express';
-import type { TimelineClip, OutputSettings } from '../../shared/types.js';
+import type { TimelineClip, OutputSettings, TimelineData } from '../../shared/types.js';
 import { DEFAULT_OUTPUT_SETTINGS } from '../../shared/types.js';
 
 const router = Router();
@@ -37,7 +37,7 @@ router.post('/submit', (req: Request, res: Response) => {
   try {
     const { name, timeline, outputSettings } = req.body as {
       name: string;
-      timeline: TimelineClip[];
+      timeline: TimelineData | TimelineClip[];
       outputSettings?: Partial<OutputSettings>;
     };
 
@@ -45,8 +45,21 @@ router.post('/submit', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'name is required' });
     }
 
-    if (!Array.isArray(timeline) || timeline.length === 0) {
-      return res.status(400).json({ error: 'timeline must be a non-empty array' });
+    let normalizedTimeline: TimelineData;
+    if (Array.isArray(timeline)) {
+      normalizedTimeline = { clips: timeline, backgroundMusic: [], masterVolume: 1 };
+    } else if (timeline && Array.isArray(timeline.clips)) {
+      normalizedTimeline = {
+        clips: timeline.clips,
+        backgroundMusic: timeline.backgroundMusic || [],
+        masterVolume: timeline.masterVolume ?? 1,
+      };
+    } else {
+      return res.status(400).json({ error: 'timeline must be a non-empty array or TimelineData' });
+    }
+
+    if (normalizedTimeline.clips.length === 0) {
+      return res.status(400).json({ error: 'timeline.clips must have at least one clip' });
     }
 
     const settings: OutputSettings = {
@@ -54,9 +67,9 @@ router.post('/submit', (req: Request, res: Response) => {
       ...outputSettings,
     };
 
-    const task = renderQueueService.submitTask(name, timeline, settings);
+    const task = renderQueueService.submitTask(name, normalizedTimeline, settings);
 
-    const estimatedTime = estimateRenderTime(timeline, settings);
+    const estimatedTime = estimateRenderTime(normalizedTimeline, settings);
 
     res.json({
       taskId: task.id,
@@ -195,13 +208,14 @@ router.get('/stats', (_req: Request, res: Response) => {
   }
 });
 
-function estimateRenderTime(timeline: TimelineClip[], settings: OutputSettings): number {
-  if (timeline.length === 0) return 0;
+function estimateRenderTime(timeline: TimelineData | TimelineClip[], settings: OutputSettings): number {
+  const clips = Array.isArray(timeline) ? timeline : timeline.clips;
+  if (clips.length === 0) return 0;
 
-  const totalDuration = timeline[timeline.length - 1].endTime;
+  const totalDuration = clips.reduce((max, c) => Math.max(max, c.endTime), 0);
   const resolutionFactor = (settings.width * settings.height) / (1920 * 1080);
   const fpsFactor = settings.fps / 30;
-  const clipFactor = 1 + timeline.length * 0.05;
+  const clipFactor = 1 + clips.length * 0.05;
 
   return totalDuration * resolutionFactor * fpsFactor * clipFactor * 1.5;
 }

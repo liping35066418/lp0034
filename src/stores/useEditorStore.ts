@@ -6,12 +6,16 @@ import type {
   OutputSettings,
   FilterConfig,
   TransitionConfig,
+  BackgroundMusicTrack,
+  TimelineData,
 } from '@/types/shared';
 import { DEFAULT_OUTPUT_SETTINGS } from '@/types/shared';
 
 interface EditorState {
   materials: Material[];
   timeline: TimelineClip[];
+  backgroundMusic: BackgroundMusicTrack[];
+  masterVolume: number;
   selectedClipId: string | null;
   selectedMaterialId: string | null;
   outputSettings: OutputSettings;
@@ -33,6 +37,13 @@ interface EditorState {
   moveClip: (id: string, newStartTime: number, newTrack?: number) => void;
   clearTimeline: () => void;
 
+  setBackgroundMusic: (tracks: BackgroundMusicTrack[]) => void;
+  addBackgroundMusic: (materialId: string, startTime?: number, volume?: number) => void;
+  removeBackgroundMusic: (materialId: string) => void;
+  setMasterVolume: (volume: number) => void;
+
+  getTimelineData: () => TimelineData;
+
   setSelectedClipId: (id: string | null) => void;
   setSelectedMaterialId: (id: string | null) => void;
   setOutputSettings: (settings: Partial<OutputSettings>) => void;
@@ -42,7 +53,7 @@ interface EditorState {
   updateRenderTask: (id: string, updates: Partial<RenderTask>) => void;
   removeRenderTask: (id: string) => void;
 
-  setCurrentTime: (time: number) => void;
+  setCurrentTime: (time: number | ((prev: number) => number)) => void;
   setIsPlaying: (playing: boolean) => void;
   setZoom: (zoom: number) => void;
   setActiveTab: (tab: 'materials' | 'ai' | 'render') => void;
@@ -58,6 +69,8 @@ interface EditorState {
 export const useEditorStore = create<EditorState>((set, get) => ({
   materials: [],
   timeline: [],
+  backgroundMusic: [],
+  masterVolume: 1,
   selectedClipId: null,
   selectedMaterialId: null,
   outputSettings: { ...DEFAULT_OUTPUT_SETTINGS },
@@ -73,6 +86,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   removeMaterial: (id) =>
     set((state) => ({
       materials: state.materials.filter((m) => m.id !== id),
+      backgroundMusic: state.backgroundMusic.filter((t) => t.materialId !== id),
     })),
   updateMaterial: (id, updates) =>
     set((state) => ({
@@ -109,7 +123,38 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       });
       return { timeline: clips };
     }),
-  clearTimeline: () => set({ timeline: [], selectedClipId: null }),
+  clearTimeline: () => set({ timeline: [], selectedClipId: null, backgroundMusic: [] }),
+
+  setBackgroundMusic: (tracks) => set({ backgroundMusic: tracks }),
+  addBackgroundMusic: (materialId, startTime = 0, volume = 0.5) => {
+    const state = get();
+    const totalDur = state.getTotalDuration();
+    const mat = state.materials.find((m) => m.id === materialId);
+    const matDur = mat?.duration ?? Math.max(10, totalDur);
+    const track: BackgroundMusicTrack = {
+      materialId,
+      startTime,
+      endTime: startTime + Math.min(matDur, Math.max(totalDur - startTime, 1)),
+      volume,
+      fadeInDuration: 1,
+      fadeOutDuration: 1,
+    };
+    set((state) => ({ backgroundMusic: [...state.backgroundMusic, track] }));
+  },
+  removeBackgroundMusic: (materialId) =>
+    set((state) => ({
+      backgroundMusic: state.backgroundMusic.filter((t) => t.materialId !== materialId),
+    })),
+  setMasterVolume: (volume) => set({ masterVolume: Math.max(0, Math.min(2, volume)) }),
+
+  getTimelineData: () => {
+    const state = get();
+    return {
+      clips: state.timeline,
+      backgroundMusic: state.backgroundMusic,
+      masterVolume: state.masterVolume,
+    };
+  },
 
   setSelectedClipId: (id) => set({ selectedClipId: id }),
   setSelectedMaterialId: (id) => set({ selectedMaterialId: id }),
@@ -132,7 +177,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       renderTasks: state.renderTasks.filter((t) => t.id !== id),
     })),
 
-  setCurrentTime: (time) => set({ currentTime: time }),
+  setCurrentTime: (time) =>
+    set((state) => ({
+      currentTime: typeof time === 'function' ? time(state.currentTime) : time,
+    })),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setZoom: (zoom) => set({ zoom: Math.max(0.25, Math.min(4, zoom)) }),
   setActiveTab: (tab) => set({ activeTab: tab }),
@@ -153,6 +201,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       sourceEndTime: duration,
       filters: [],
       speed: 1,
+      volume: 1,
     };
 
     set((state) => ({ timeline: [...state.timeline, newClip] }));

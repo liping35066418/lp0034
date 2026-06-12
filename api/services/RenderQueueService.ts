@@ -7,12 +7,14 @@ import type {
   RenderStatus, 
   TimelineClip, 
   OutputSettings,
-  RenderStage 
+  RenderStage,
+  TimelineData
 } from '../../shared/types.js';
 
 interface TaskControl {
   cancelled: boolean;
   paused: boolean;
+  ffmpegPids: Set<number>;
 }
 
 export class RenderQueueService {
@@ -44,7 +46,7 @@ export class RenderQueueService {
 
   submitTask(
     name: string,
-    timeline: TimelineClip[],
+    timeline: TimelineData,
     outputSettings: OutputSettings
   ): RenderTask {
     const task = taskRepository.create({
@@ -74,7 +76,7 @@ export class RenderQueueService {
   }
 
   private async executeTask(taskId: string): Promise<void> {
-    const control: TaskControl = { cancelled: false, paused: false };
+    const control: TaskControl = { cancelled: false, paused: false, ffmpegPids: new Set() };
     this.taskControls.set(taskId, control);
 
     try {
@@ -88,32 +90,35 @@ export class RenderQueueService {
 
       const materials = new Map<string, { filePath: string; type: string }>();
 
-      for (const clip of task.timeline) {
-        const material = materialService.getMaterial(clip.materialId);
+      const timeline = task.timeline as TimelineData;
+      const clips = Array.isArray(timeline) ? timeline : (timeline.clips || []);
+      const bgmTracks = Array.isArray(timeline) ? [] : (timeline.backgroundMusic || []);
+
+      const allMaterialIds = new Set<string>();
+      clips.forEach(c => allMaterialIds.add(c.materialId));
+      bgmTracks.forEach(t => allMaterialIds.add(t.materialId));
+
+      for (const materialId of allMaterialIds) {
+        const material = materialService.getMaterial(materialId);
         if (material && material.status === 'ready') {
-          materials.set(clip.materialId, {
+          materials.set(materialId, {
             filePath: material.filePath,
             type: material.type,
           });
         }
       }
 
-      if (materials.size === 0) {
-        throw new Error('No valid materials found in timeline');
+      if (clips.length === 0) {
+        throw new Error('No valid clips found in timeline');
       }
 
       const outputPath = await videoService.renderTimeline(
-        task.timeline,
+        timeline,
         materials,
         task.outputSettings,
         taskId,
         (progress: number, stage: string) => {
           if (control.cancelled) return;
-
-          while (control.paused && !control.cancelled) {
-            this.sleep(100);
-          }
-
           taskRepository.updateProgress(taskId, progress, stage as RenderStage);
           wsService.sendProgress(taskId, {
             type: 'progress',
@@ -121,7 +126,11 @@ export class RenderQueueService {
             progress,
             stage: stage as RenderStage,
           });
-        }
+        },
+        () => control.cancelled,
+        () => control.paused,
+        (pid) => { if (pid) control.ffmpegPids.add(pid); },
+        (pid) => { if (pid) control.ffmpegPids.delete(pid); }
       );
 
       if (control.cancelled) {
@@ -145,15 +154,18 @@ export class RenderQueueService {
     }
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
   pauseTask(taskId: string): boolean {
     const control = this.taskControls.get(taskId);
     if (!control) return false;
 
     control.paused = true;
+    for (const pid of control.ffmpegPids) {
+      try {
+        process.kill(pid, 'SIGSTOP');
+      } catch (e) {
+        console.warn(`Failed to SIGSTOP pid ${pid}:`, e);
+      }
+    }
     wsService.sendTaskStatus(taskId, 'paused');
     return true;
   }
@@ -163,6 +175,13 @@ export class RenderQueueService {
     if (!control) return false;
 
     control.paused = false;
+    for (const pid of control.ffmpegPids) {
+      try {
+        process.kill(pid, 'SIGCONT');
+      } catch (e) {
+        console.warn(`Failed to SIGCONT pid ${pid}:`, e);
+      }
+    }
     wsService.sendTaskStatus(taskId, 'processing');
     return true;
   }
@@ -185,6 +204,13 @@ export class RenderQueueService {
 
     control.cancelled = true;
     control.paused = false;
+    for (const pid of control.ffmpegPids) {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch (e) {
+        console.warn(`Failed to kill pid ${pid}:`, e);
+      }
+    }
     return true;
   }
 

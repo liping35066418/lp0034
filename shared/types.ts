@@ -71,6 +71,22 @@ export interface TimelineClip {
   filters: FilterConfig[];
   transition?: TransitionConfig;
   speed: number;
+  volume?: number;
+}
+
+export interface BackgroundMusicTrack {
+  materialId: string;
+  startTime: number;
+  endTime: number;
+  volume: number;
+  fadeInDuration: number;
+  fadeOutDuration: number;
+}
+
+export interface TimelineData {
+  clips: TimelineClip[];
+  backgroundMusic?: BackgroundMusicTrack[];
+  masterVolume?: number;
 }
 
 export type RenderStatus = 'pending' | 'processing' | 'paused' | 'completed' | 'failed' | 'cancelled';
@@ -92,7 +108,7 @@ export interface RenderTask {
   status: RenderStatus;
   progress: number;
   stage?: RenderStage;
-  timeline: TimelineClip[];
+  timeline: TimelineData;
   outputSettings: OutputSettings;
   createdAt: number;
   startedAt?: number;
