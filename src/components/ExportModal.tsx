@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { X, Download, Settings, Film, Monitor, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import useEditorStore from '@/stores/useEditorStore';
@@ -33,11 +33,15 @@ const QUALITY_OPTIONS = [
   { value: 'high', label: '高质量', bitrate: 20000 },
 ];
 
+const BASE_PIXELS = 1920 * 1080;
+const BASE_FPS = 30;
+
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => {
   const outputSettings = useEditorStore((state) => state.outputSettings);
   const setOutputSettings = useEditorStore((state) => state.setOutputSettings);
   const getTimelineData = useEditorStore((state) => state.getTimelineData);
   const getTotalDuration = useEditorStore((state) => state.getTotalDuration);
+  const getClipCount = useEditorStore((state) => state.getClipCount);
   const addRenderTask = useEditorStore((state) => state.addRenderTask);
   const setActiveTab = useEditorStore((state) => state.setActiveTab);
 
@@ -84,12 +88,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     }
   };
 
-  if (!isOpen) return null;
-
   const totalDuration = getTotalDuration();
+  const clipCount = getClipCount();
   const timelineDataPreview = getTimelineData();
-  const estimatedSize =
-    (outputSettings.bitrate * totalDuration) / 8 / 1024;
+
+  const estimatedSize = useMemo(() => {
+    const pixelRatio = (outputSettings.width * outputSettings.height) / BASE_PIXELS;
+    const fpsRatio = outputSettings.fps / BASE_FPS;
+    const adjustedBitrate = outputSettings.bitrate * Math.sqrt(pixelRatio) * Math.sqrt(fpsRatio);
+    return (adjustedBitrate * totalDuration) / 8 / 1024;
+  }, [outputSettings.width, outputSettings.height, outputSettings.fps, outputSettings.bitrate, totalDuration]);
+
+  const formatFileSize = (mb: number) => {
+    if (mb < 1) return `${(mb * 1024).toFixed(0)} KB`;
+    if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
+    return `${mb.toFixed(1)} MB`;
+  };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -285,7 +301,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 </p>
               </div>
               <div>
-                <span className="text-slate-500">时长</span>
+                <span className="text-slate-500">预估成片时长</span>
                 <p className="font-medium">
                   {Math.floor(totalDuration / 60)}:
                   {Math.floor(totalDuration % 60)
@@ -295,13 +311,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               </div>
               <div>
                 <span className="text-slate-500">片段数</span>
-                <p className="font-medium">{timelineDataPreview.clips.length} 个</p>
+                <p className="font-medium">{clipCount} 个</p>
               </div>
               <div>
-                <span className="text-slate-500">预估大小</span>
-                <p className="font-medium">{estimatedSize.toFixed(1)} MB</p>
+                <span className="text-slate-500">预估文件大小</span>
+                <p className="font-medium">{formatFileSize(estimatedSize)}</p>
               </div>
             </div>
+            {totalDuration === 0 && (
+              <p className="mt-3 text-xs text-amber-400">
+                ⚠️ 时间轴为空，无法预估
+              </p>
+            )}
           </div>
         </div>
 

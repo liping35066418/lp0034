@@ -22,7 +22,7 @@ import ExportModal from '@/components/ExportModal';
 import useEditorStore from '@/stores/useEditorStore';
 import useWebSocket from '@/hooks/useWebSocket';
 import { materialsAPI, renderAPI } from '@/lib/api';
-import type { Material } from '@/types/shared';
+import type { Material, FilterType } from '@/types/shared';
 import { cn } from '@/lib/utils';
 
 const Home: React.FC = () => {
@@ -45,6 +45,11 @@ const Home: React.FC = () => {
   const setRenderTasks = useEditorStore((state) => state.setRenderTasks);
   const activeTab = useEditorStore((state) => state.activeTab);
   const setActiveTab = useEditorStore((state) => state.setActiveTab);
+  const timelineLength = useEditorStore((state) => state.timeline.length);
+  const timelineTotalDuration = useEditorStore((state) => state.getTotalDuration());
+  const selectedClipIds = useEditorStore((state) => state.selectedClipIds);
+  const batchApplyFilter = useEditorStore((state) => state.batchApplyFilter);
+  const applyFilterToSelected = useEditorStore((state) => state.applyFilterToSelected);
 
   useWebSocket();
 
@@ -347,17 +352,24 @@ const Home: React.FC = () => {
               <h4 className="text-xs font-medium text-slate-400 mb-3">快调色</h4>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { name: '电影感', color: 'from-indigo-500 to-purple-500' },
-                  { name: '清新', color: 'from-cyan-400 to-blue-500' },
-                  { name: '暖调', color: 'from-amber-400 to-orange-500' },
-                  { name: '复古', color: 'from-yellow-600 to-amber-700' },
-                  { name: '冷调', color: 'from-blue-400 to-cyan-500' },
-                  { name: '黑白', color: 'from-gray-400 to-gray-600' },
+                  { name: '电影感', type: 'cinematic' as FilterType, color: 'from-indigo-500 to-purple-500' },
+                  { name: '清新', type: 'saturation' as FilterType, color: 'from-cyan-400 to-blue-500' },
+                  { name: '暖调', type: 'warm' as FilterType, color: 'from-amber-400 to-orange-500' },
+                  { name: '复古', type: 'vintage' as FilterType, color: 'from-yellow-600 to-amber-700' },
+                  { name: '冷调', type: 'cool' as FilterType, color: 'from-blue-400 to-cyan-500' },
+                  { name: '黑白', type: 'grayscale' as FilterType, color: 'from-gray-400 to-gray-600' },
                 ].map((preset) => (
                   <button
                     key={preset.name}
                     className="group"
-                    title={preset.name}
+                    title={selectedClipIds.length > 0 ? `应用到 ${selectedClipIds.length} 个片段` : '请先选中片段'}
+                    onClick={() => {
+                      if (selectedClipIds.length > 1) {
+                        batchApplyFilter(selectedClipIds, { type: preset.type, params: { intensity: 1.0 } });
+                      } else if (selectedClipIds.length === 1) {
+                        applyFilterToSelected({ type: preset.type, params: { intensity: 1.0 } });
+                      }
+                    }}
                   >
                     <div
                       className={`h-12 rounded-lg bg-gradient-to-br ${preset.color} transition-transform group-hover:scale-105`}
@@ -422,10 +434,10 @@ const Home: React.FC = () => {
           <div className="mt-6 pt-4 border-t border-slate-700">
             <div className="text-xs text-slate-500 space-y-1">
               <p>素材数量: {materials.length}</p>
-              <p>时间轴片段: {useEditorStore.getState().timeline.length}</p>
+              <p>时间轴片段: {timelineLength}</p>
               <p>
                 总时长:{' '}
-                {useEditorStore.getState().getTotalDuration().toFixed(1)}秒
+                {timelineTotalDuration.toFixed(1)}秒
               </p>
             </div>
           </div>

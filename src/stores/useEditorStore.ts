@@ -17,6 +17,7 @@ interface EditorState {
   backgroundMusic: BackgroundMusicTrack[];
   masterVolume: number;
   selectedClipId: string | null;
+  selectedClipIds: string[];
   selectedMaterialId: string | null;
   outputSettings: OutputSettings;
   renderTasks: RenderTask[];
@@ -36,6 +37,8 @@ interface EditorState {
   updateClip: (id: string, updates: Partial<TimelineClip>) => void;
   moveClip: (id: string, newStartTime: number, newTrack?: number) => void;
   clearTimeline: () => void;
+  batchRemoveClips: (ids: string[]) => void;
+  batchApplyFilter: (ids: string[], filter: FilterConfig) => void;
 
   setBackgroundMusic: (tracks: BackgroundMusicTrack[]) => void;
   addBackgroundMusic: (materialId: string, startTime?: number, volume?: number) => void;
@@ -45,6 +48,10 @@ interface EditorState {
   getTimelineData: () => TimelineData;
 
   setSelectedClipId: (id: string | null) => void;
+  setSelectedClipIds: (ids: string[]) => void;
+  toggleClipSelection: (id: string, multi?: boolean) => void;
+  selectAllClips: () => void;
+  clearClipSelection: () => void;
   setSelectedMaterialId: (id: string | null) => void;
   setOutputSettings: (settings: Partial<OutputSettings>) => void;
 
@@ -63,6 +70,7 @@ interface EditorState {
   applyTransitionToSelected: (transition: TransitionConfig) => void;
 
   getTotalDuration: () => number;
+  getClipCount: () => number;
   getClipAtTime: (time: number) => TimelineClip | null;
 }
 
@@ -72,6 +80,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   backgroundMusic: [],
   masterVolume: 1,
   selectedClipId: null,
+  selectedClipIds: [],
   selectedMaterialId: null,
   outputSettings: { ...DEFAULT_OUTPUT_SETTINGS },
   renderTasks: [],
@@ -102,6 +111,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => ({
       timeline: state.timeline.filter((c) => c.id !== id),
       selectedClipId: state.selectedClipId === id ? null : state.selectedClipId,
+      selectedClipIds: state.selectedClipIds.filter((cid) => cid !== id),
     })),
   updateClip: (id, updates) =>
     set((state) => ({
@@ -123,7 +133,27 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       });
       return { timeline: clips };
     }),
-  clearTimeline: () => set({ timeline: [], selectedClipId: null, backgroundMusic: [] }),
+  clearTimeline: () => set({ timeline: [], selectedClipId: null, selectedClipIds: [], backgroundMusic: [] }),
+
+  batchRemoveClips: (ids) =>
+    set((state) => {
+      const idSet = new Set(ids);
+      return {
+        timeline: state.timeline.filter((c) => !idSet.has(c.id)),
+        selectedClipIds: state.selectedClipIds.filter((cid) => !idSet.has(cid)),
+        selectedClipId: idSet.has(state.selectedClipId || '') ? null : state.selectedClipId,
+      };
+    }),
+
+  batchApplyFilter: (ids, filter) =>
+    set((state) => {
+      const idSet = new Set(ids);
+      return {
+        timeline: state.timeline.map((c) =>
+          idSet.has(c.id) ? { ...c, filters: [...c.filters, filter] } : c
+        ),
+      };
+    }),
 
   setBackgroundMusic: (tracks) => set({ backgroundMusic: tracks }),
   addBackgroundMusic: (materialId, startTime = 0, volume = 0.5) => {
@@ -156,7 +186,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     };
   },
 
-  setSelectedClipId: (id) => set({ selectedClipId: id }),
+  setSelectedClipId: (id) => set({ selectedClipId: id, selectedClipIds: id ? [id] : [] }),
+  setSelectedClipIds: (ids) => set({ selectedClipIds: ids, selectedClipId: ids.length === 1 ? ids[0] : ids.length > 0 ? ids[0] : null }),
+  toggleClipSelection: (id, multi = false) =>
+    set((state) => {
+      if (multi) {
+        const isSelected = state.selectedClipIds.includes(id);
+        const newIds = isSelected
+          ? state.selectedClipIds.filter((cid) => cid !== id)
+          : [...state.selectedClipIds, id];
+        return {
+          selectedClipIds: newIds,
+          selectedClipId: newIds.length === 1 ? newIds[0] : newIds.length > 0 ? newIds[0] : null,
+        };
+      }
+      return {
+        selectedClipIds: [id],
+        selectedClipId: id,
+      };
+    }),
+  selectAllClips: () =>
+    set((state) => ({
+      selectedClipIds: state.timeline.map((c) => c.id),
+      selectedClipId: state.timeline.length > 0 ? state.timeline[0].id : null,
+    })),
+  clearClipSelection: () => set({ selectedClipIds: [], selectedClipId: null }),
   setSelectedMaterialId: (id) => set({ selectedMaterialId: id }),
   setOutputSettings: (settings) =>
     set((state) => ({
@@ -235,6 +289,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const state = get();
     if (state.timeline.length === 0) return 0;
     return Math.max(...state.timeline.map((c) => c.endTime));
+  },
+
+  getClipCount: () => {
+    const state = get();
+    return state.timeline.length;
   },
 
   getClipAtTime: (time) => {

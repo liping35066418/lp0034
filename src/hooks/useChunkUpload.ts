@@ -26,6 +26,7 @@ export function useChunkUpload(): UseChunkUpload {
   const [isUploading, setIsUploading] = useState(false);
   const queueRef = useRef<string[]>([]);
   const activeCountRef = useRef(0);
+  const uploadsRef = useRef<Map<string, UploadItem>>(new Map());
   const MAX_CONCURRENT = 2;
   const addMaterial = useEditorStore((state) => state.addMaterial);
 
@@ -41,6 +42,7 @@ export function useChunkUpload(): UseChunkUpload {
     setUploads((prev) => [...prev, ...newUploads]);
 
     for (const upload of newUploads) {
+      uploadsRef.current.set(upload.id, upload);
       queueRef.current.push(upload.id);
     }
 
@@ -73,7 +75,7 @@ export function useChunkUpload(): UseChunkUpload {
       prev.map((u) => (u.id === uploadId ? { ...u, status: 'uploading' } : u))
     );
 
-    const upload = uploads.find((u) => u.id === uploadId);
+    const upload = uploadsRef.current.get(uploadId);
     if (!upload) return;
 
     try {
@@ -83,13 +85,14 @@ export function useChunkUpload(): UseChunkUpload {
       const initResult = await uploadAPI.init(file.name, totalSize);
       const { sessionId, totalChunks } = initResult;
 
+      uploadsRef.current.set(uploadId, { ...upload, sessionId });
       setUploads((prev) =>
         prev.map((u) => (u.id === uploadId ? { ...u, sessionId } : u))
       );
 
       for (let i = 0; i < totalChunks; i++) {
-        const currentUpload = uploads.find((u) => u.id === uploadId);
-        if (currentUpload?.status === 'error') {
+        const currentUpload = uploadsRef.current.get(uploadId);
+        if (!currentUpload || currentUpload.status === 'error') {
           break;
         }
 
@@ -137,6 +140,8 @@ export function useChunkUpload(): UseChunkUpload {
         throw new Error(mergeResult.message || 'Merge failed');
       }
     } catch (error: any) {
+      const cur = uploadsRef.current.get(uploadId);
+      if (cur) uploadsRef.current.set(uploadId, { ...cur, status: 'error', error: error.message });
       setUploads((prev) =>
         prev.map((u) =>
           u.id === uploadId
@@ -148,9 +153,12 @@ export function useChunkUpload(): UseChunkUpload {
   };
 
   const cancelUpload = useCallback((id: string) => {
-    const upload = uploads.find((u) => u.id === id);
+    const upload = uploadsRef.current.get(id);
     if (upload?.sessionId) {
       uploadAPI.cancel(upload.sessionId).catch(() => {});
+    }
+    if (upload) {
+      uploadsRef.current.set(id, { ...upload, status: 'error' });
     }
 
     const queueIndex = queueRef.current.indexOf(id);
@@ -158,10 +166,14 @@ export function useChunkUpload(): UseChunkUpload {
       queueRef.current.splice(queueIndex, 1);
     }
 
+    uploadsRef.current.delete(id);
     setUploads((prev) => prev.filter((u) => u.id !== id));
-  }, [uploads]);
+  }, []);
 
   const clearCompleted = useCallback(() => {
+    for (const [id, u] of uploadsRef.current) {
+      if (u.status === 'completed') uploadsRef.current.delete(id);
+    }
     setUploads((prev) => prev.filter((u) => u.status !== 'completed'));
   }, []);
 
